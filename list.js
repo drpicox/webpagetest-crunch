@@ -6,24 +6,30 @@ var cheerio = require('cheerio');
 var json2csv = require('json2csv');
 var Promise = require('q').Promise;
 var Q       = require('q');
+var queue   = require('queue-async');
 var request = require('request');
 
-var remoteUrl = 'http://www.webpagetest.org';
+var REMOTE_URL = 'http://www.webpagetest.org';
+var requestQueue = queue(4);
 
 function requestUrl(url) {
 	return Promise(function(resolve, reject) {
-		request(url, function(error, response, body) {
-			if (!error && response.statusCode == 200) {
-				resolve(body);
-			} else {
-				reject(error || response);
-			}
+		requestQueue.defer(function(cb) {
+			request(url, function(error, response, body) {				
+				if (!error && response.statusCode == 200) {
+					resolve(body);
+				} else {
+					reject(error || response);
+				}
+				console.error(url);
+				cb(null, null);
+			});
 		});
 	});
 }
 
 function requestLog() {
-	return requestUrl(remoteUrl + '/testlog.php?days=7&filter=&all=on');
+	return requestUrl(REMOTE_URL + '/testlog.php?days=7&filter=&all=on');
 }
 
 function convertHtmlToHistories(body) {
@@ -32,7 +38,7 @@ function convertHtmlToHistories(body) {
 	var $history = $('table.history');
 
 	$history.find('tr').each(function(idx) {
-		if (idx < 70 || idx > 71) { return; }
+		if (idx < 50 || idx > 91) { return; }
 
 		var $row = $(this);
 		var $location = $row.find('.location');
@@ -53,7 +59,7 @@ function convertHistoriesToResults(histories) {
 }
 
 function convertHistoryToResult(history) {
-	return requestUrl(remoteUrl + '/xmlResult/' + history.id + '/')
+	return requestUrl(REMOTE_URL + '/xmlResult/' + history.id + '/')
 	.then(function(body) {
 		return parseResult(history, body);
 	});
@@ -165,15 +171,11 @@ function convertRowsToCSV(rows) {
 
 	var fields = [];
 	rows.forEach(function(row) {
-		console.log(fields, row);
 		fields = _.union(fields, _.keys(row));
 	});
 
-	console.log(fields);
-
 	return Promise(function(resolve, reject) {
 		json2csv({data: rows, fields: fields}, function(err, csv) {
-			console.log(csv);
 			if (err) reject(err); else resolve(csv);
 		})
 	});
@@ -188,7 +190,10 @@ requestLog()
 .then(function(body) {
 	console.log(body);
 })
+.done();
+/*
 .catch(function(ops) {
 	console.log(ops);
 	console.log(ops.stack);
 });
+*/
